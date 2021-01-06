@@ -1,3 +1,6 @@
-export default function () {
-    return "Hello Re0"
+import { h } from './h';
+
+
+export {
+    h
 }

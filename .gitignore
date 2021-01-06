@@ -1,2 +1,8 @@
 /node_modules
 /dist
+/.idea
+/.vscode
+/coverage
+/demo/dist
+/demo/node_modules
+/demo/.cache
