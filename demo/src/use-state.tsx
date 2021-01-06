@@ -1,4 +1,4 @@
-import { h } from '../../src/index'
+import { h, render } from '../../src/index'
 
 function App() {
 
@@ -10,3 +10,5 @@ function App() {
 }
 
 console.log(<App/>)
+
+render(<App />, document.getElementById("root"));
