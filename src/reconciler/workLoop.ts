@@ -27,17 +27,25 @@ import {
 } from "../share/WorkTag";
 import {markRootUpdated} from "./index";
 import {
-    ContentReset,
-    DidCapture, HostEffectMask, Incomplete, NoEffect,
+    Callback,
+    ContentReset, Deletion,
+    DidCapture, HostEffectMask, Incomplete,
     PerformedWork,
-    Placement,
+    Placement, PlacementAndUpdate,
     Ref,
     ShouldCapture,
     Snapshot,
     Update
 } from "../share/SideEffectTags";
-import {cloneUpdateQueue, enqueueUpdate} from "./updateQueue";
+import {cloneUpdateQueue, enqueueUpdate, flushSyncCallbackQueue} from "./updateQueue";
 import {mountChildFibers, reconcileChildFibers} from "./reconcileChild";
+import {completeUnitOfWork} from "./completeWork";
+
+let pendingPassiveHookEffectsMount: Array<any | Fiber> = [];
+
+let rootDoesHavePassiveEffects: boolean = false;
+
+
 
 let workInProgress: Fiber | null = null;
 let didReceiveUpdate: boolean = false;
@@ -49,6 +57,37 @@ let currentHook = null;
 let workInProgressHook = null;
 
 let didScheduleRenderPhaseUpdate: boolean = false;
+let rootWithPendingPassiveEffects: FiberRoot | null = null;
+let pendingPassiveEffectsLanes: Lanes = NoLanes;
+
+let nestedPassiveUpdateCount: number = 0;
+
+let workInProgressRoot: FiberRoot | null = null;
+let nextEffect: Fiber | null = null;
+
+
+let workInProgressRootRenderLanes: Lanes = NoLanes;
+
+
+
+
+export type HookEffectTag = number;
+
+
+export type Effect = {
+    tag: number,
+    create: () => (() => void) | void,
+    destroy: (() => void) | void,
+    deps: Array<any> | null,
+    next: Effect,
+    };
+
+let pendingPassiveHookEffectsUnmount: Array<any | Fiber> = [];
+
+
+
+export type ReactPriorityLevel = 99 | 98 | 97 | 96 | 95 | 90;
+
 
 
 export const UpdateState = 0;
@@ -129,14 +168,14 @@ function getCurrentPriorityLevel(){
 
 function performSyncWorkOnRoot(root) {
     // TODO: hooks相关
-    // flushPassiveEffects();
+    flushPassiveEffects();
     renderRootSync(root, SyncLane);
 
 
 
     // We now have a consistent tree. Because this is a sync render, we
     // will commit it even if something suspended.
-    const finishedWork: Fiber = (root.current.alternate: any);
+    const finishedWork: Fiber = root.current.alternate;
     root.finishedWork = finishedWork;
     root.finishedLanes = lanes;
     // 开始 Commit 阶段
@@ -148,6 +187,720 @@ function performSyncWorkOnRoot(root) {
 
     return null;
 }
+
+function commitRoot(root) {
+    const renderPriorityLevel = getCurrentPriorityLevel();
+    runWithPriority(
+        99,
+        commitRootImpl.bind(null, root, renderPriorityLevel),
+    );
+    return null;
+}
+
+function detachFiberAfterEffects(fiber: Fiber): void {
+    fiber.sibling = null;
+}
+
+function flushPassiveEffects() {
+    function flushPassiveEffectsImpl() {
+        if (rootWithPendingPassiveEffects === null) {
+            return false;
+        }
+
+        const root = rootWithPendingPassiveEffects;
+        const lanes = pendingPassiveEffectsLanes;
+        rootWithPendingPassiveEffects = null;
+        pendingPassiveEffectsLanes = NoLanes;
+
+
+        const unmountEffects = pendingPassiveHookEffectsUnmount;
+        pendingPassiveHookEffectsUnmount = [];
+        for (let i = 0; i < unmountEffects.length; i += 2) {
+            const effect = unmountEffects[i];
+            const fiber = unmountEffects[i + 1];
+            const destroy = effect.destroy;
+            effect.destroy = undefined;
+
+            if (typeof destroy === 'function') {
+                try {
+                    destroy();
+                } catch (error) {
+                    console.error("flushPassiveEffectsImpl error!")
+                }
+            }
+        }
+        // Second pass: Create new passive effects.
+        const mountEffects = pendingPassiveHookEffectsMount;
+        pendingPassiveHookEffectsMount = [];
+        for (let i = 0; i < mountEffects.length; i += 2) {
+            const effect = mountEffects[i];
+            const fiber = mountEffects[i + 1];
+            try {
+                const create = effect.create;
+                effect.destroy = create();
+            } catch (error) {
+                console.error("flushPassiveEffectsImpl... error!")
+            }
+        }
+
+        let effect = root.current.firstEffect;
+        while (effect !== null) {
+            const nextNextEffect = effect.nextEffect;
+            // Remove nextEffect pointer to assist GC
+            effect.nextEffect = null;
+            if (effect.effectTag & Deletion) {
+                detachFiberAfterEffects(effect);
+            }
+            effect = nextNextEffect;
+        }
+
+
+        flushSyncCallbackQueue();
+
+        // If additional passive effects were scheduled, increment a counter. If this
+        // exceeds the limit, we'll fire a warning.
+        nestedPassiveUpdateCount =
+            rootWithPendingPassiveEffects === null ? 0 : nestedPassiveUpdateCount + 1;
+
+        return true;
+    }
+    flushPassiveEffectsImpl();
+}
+
+function commitRootImpl(root, renderPriorityLevel) {
+    do {
+        flushPassiveEffects();
+    } while (rootWithPendingPassiveEffects !== null);
+
+    const finishedWork = root.finishedWork;
+    const lanes = root.finishedLanes;
+    if (finishedWork === null) {
+        return null;
+    }
+    root.finishedWork = null;
+    root.finishedLanes = NoLanes;
+
+    // commitRoot never returns a continuation; it always finishes synchronously.
+    // So we can clear these now to allow a new callback to be scheduled.
+    root.callbackNode = null;
+    root.callbackId = NoLanes;
+
+    // Update the first and last pending times on this root. The new first
+    // pending time is whatever is left on the root fiber.
+
+
+    if (root === workInProgressRoot) {
+        // We can reset these now that they are finished.
+        workInProgressRoot = null;
+        workInProgress = null;
+        workInProgressRootRenderLanes = NoLanes;
+    } else {
+        // This indicates that the last root we worked on is not the same one that
+        // we're committing now. This most commonly happens when a suspended root
+        // times out.
+    }
+
+    // Get the list of effects.
+    let firstEffect;
+    if (finishedWork.effectTag > PerformedWork) {
+        // A fiber's effect list consists only of its children, not itself. So if
+        // the root has an effect, we need to add it to the end of the list. The
+        // resulting list is the set that would belong to the root's parent, if it
+        // had one; that is, all the effects in the tree including the root.
+        if (finishedWork.lastEffect !== null) {
+            finishedWork.lastEffect.nextEffect = finishedWork;
+            firstEffect = finishedWork.firstEffect;
+        } else {
+            firstEffect = finishedWork;
+        }
+    } else {
+        // There is no effect on the root.
+        firstEffect = finishedWork.firstEffect;
+    }
+
+    // ------ before mutation之前 ----
+
+    // before mutation , mutation , layout
+    if (firstEffect !== null) {
+
+        nextEffect = firstEffect;
+        do {
+            {
+                try {
+
+                    /*
+                      处理DOM节点渲染/删除后的 autoFocus、blur逻辑
+
+                      调用getSnapshotBeforeUpdate生命周期钩子
+
+                      调度useEffect
+                     */
+                    commitBeforeMutationEffects();
+                } catch (error) {
+                    console.error('commitRootImpl---',error);
+                    nextEffect = nextEffect.nextEffect;
+                }
+            }
+        } while (nextEffect !== null);
+
+
+
+        // The next phase is the mutation phase, where we mutate the host tree.
+        // 下一个阶段是突变阶段，在此阶段我们对宿主树进行挂载
+        nextEffect = firstEffect;
+        do {
+           {
+                try {
+                    // 这里会真真的执行Dom操作
+                    commitMutationEffects(root, renderPriorityLevel);
+                } catch (error) {
+                    console.error('commitRootImpl++++')
+                    nextEffect = nextEffect.nextEffect;
+                }
+            }
+        } while (nextEffect !== null);
+
+
+        root.current = finishedWork;
+
+        nextEffect = firstEffect;
+        do {
+            try {
+                /*
+                  调用componentDidUpdate 或 componentDidMount 和 hook, 调用this.setState 的 第二个参数
+                  useEffect 真正会在这里被调度
+                */
+                commitLayoutEffects(root, lanes);
+            } catch (error) {
+                console.log('commitRootImpl _+-=')
+                nextEffect = nextEffect.nextEffect;
+            }
+        } while (nextEffect !== null);
+
+        nextEffect = null;
+
+    } else {
+        // No effects.
+        root.current = finishedWork;
+    }
+
+
+    // ------- layout 之后 --------
+    const rootDidHavePassiveEffects = rootDoesHavePassiveEffects;
+
+    if (rootDoesHavePassiveEffects) {
+        // This commit has passive effects. Stash a reference to them. But don't
+        // schedule a callback until after flushing layout work.
+        rootDoesHavePassiveEffects = false;
+        rootWithPendingPassiveEffects = root;
+        pendingPassiveEffectsLanes = lanes;
+    } else {
+        // We are done with the effect chain at this point so let's clear the
+        // nextEffect pointers to assist with GC. If we have passive effects, we'll
+        // clear this in flushPassiveEffects.
+        nextEffect = firstEffect;
+        while (nextEffect !== null) {
+            const nextNextEffect = nextEffect.nextEffect;
+            nextEffect.nextEffect = null;
+            if (nextEffect.effectTag & Deletion) {
+                detachFiberAfterEffects(nextEffect);
+            }
+            nextEffect = nextNextEffect;
+        }
+    }
+
+
+
+    // Always call this before exiting `commitRoot`, to ensure that any
+    // additional work on this root is scheduled.
+    ensureRootIsScheduled(root, now());
+
+    if (hasUncaughtError) {
+        hasUncaughtError = false;
+        const error = firstUncaughtError;
+        firstUncaughtError = null;
+        throw error;
+    }
+
+    if ((executionContext & LegacyUnbatchedContext) !== NoContext) {
+        // This is a legacy edge case. We just committed the initial mount of
+        // a ReactDOM.render-ed root inside of batchedUpdates. The commit fired
+        // synchronously, but layout updates should be deferred until the end
+        // of the batch.
+        return null;
+    }
+
+    // If layout work was scheduled, flush it now.
+    flushSyncCallbackQueue();
+
+    return null;
+}
+
+export function markStarvedLanesAsExpired(
+    root: FiberRoot,
+    currentTime: number,
+): void {
+
+    const pendingLanes = root.pendingLanes;
+    const suspendedLanes = root.suspendedLanes;
+    const pingedLanes = root.pingedLanes;
+    const expirationTimes = root.expirationTimes;
+
+    let lanes = pendingLanes;
+    while (lanes > 0) {
+        const index = pickArbitraryLaneIndex(lanes);
+        const lane = 1 << index;
+
+        const expirationTime = expirationTimes[index];
+        if (expirationTime === NoTimestamp) {
+            // Found a pending lane with no expiration time. If it's not suspended, or
+            // if it's pinged, assume it's CPU-bound. Compute a new expiration time
+            // using the current time.
+            if (
+                (lane & suspendedLanes) === NoLanes ||
+                (lane & pingedLanes) !== NoLanes
+            ) {
+                // Assumes timestamps are monotonically increasing.
+                expirationTimes[index] = computeExpirationTime(lane, currentTime);
+            }
+        } else if (expirationTime <= currentTime) {
+            // This lane expired
+            root.expiredLanes |= lane;
+        }
+
+        lanes &= ~lane;
+    }
+}
+
+function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
+    const existingCallbackNode = root.callbackNode;
+
+    // Check if any lanes are being starved by other work. If so, mark them as
+    // expired so we know to work on those next.
+    // markStarvedLanesAsExpired(root, currentTime);
+
+    // Determine the next lanes to work on, and their priority.
+    const newCallbackId = SyncLane;
+
+    // Check if there's an existing task. We may be able to reuse it.
+    const existingCallbackId = root.callbackId;
+    const existingCallbackPriority = root.callbackPriority;
+
+
+    // Schedule a new callback.
+    performSyncWorkOnRoot.bind(null, root);
+
+
+    root.callbackId = newCallbackId;
+    root.callbackPriority = newCallbackPriority;
+    root.callbackNode = newCallbackNode;
+}
+
+
+export function commitUpdateQueue<State>(
+    finishedWork: Fiber,
+    finishedQueue: UpdateQueue<State>,
+    instance: any,
+): void {
+    // Commit the effects
+    const effects = finishedQueue.effects;
+    finishedQueue.effects = null;
+    if (effects !== null) {
+        for (let i = 0; i < effects.length; i++) {
+            const effect = effects[i];
+            const callback = effect.callback;
+            if (callback !== null) {
+                effect.callback = null;
+                callCallback(callback, instance);
+            }
+        }
+    }
+}
+
+function commitLayoutEffectOnFiber(
+    finishedRoot: FiberRoot,
+    current: Fiber | null,
+    finishedWork: Fiber,
+    committedLanes: Lanes,
+): void {
+    switch (finishedWork.tag) {
+        case FunctionComponent:
+        case ClassComponent: {
+            const instance = finishedWork.stateNode;
+            if (finishedWork.effectTag & Update) {
+                if (current === null) {
+                    instance.componentDidMount();
+                } else {
+                    const prevProps =
+                        finishedWork.elementType === finishedWork.type
+                            ? current.memoizedProps
+                            : resolveDefaultProps(finishedWork.type, current.memoizedProps);
+                    const prevState = current.memoizedState;
+                    instance.componentDidUpdate(
+                        prevProps,
+                        prevState,
+                        instance.__reactInternalSnapshotBeforeUpdate,
+                    );}
+                }
+            }
+
+            const updateQueue = finishedWork.updateQueue;
+            if (updateQueue !== null) {
+                commitUpdateQueue(finishedWork, updateQueue, instance);
+            }
+            return;
+        case HostRoot: {
+            // TODO: I think this is now always non-null by the time it reaches the
+            // commit phase. Consider removing the type check.
+            const updateQueue = finishedWork.updateQueue;
+            if (updateQueue !== null) {
+                let instance = null;
+                if (finishedWork.child !== null) {
+                    switch (finishedWork.child.tag) {
+                        case HostComponent:
+                            instance = getPublicInstance(finishedWork.child.stateNode);
+                            break;
+                        case ClassComponent:
+                            instance = finishedWork.child.stateNode;
+                            break;
+                    }
+                }
+                commitUpdateQueue(finishedWork, updateQueue, instance);
+            }
+            return;
+        }
+        case HostComponent: {
+
+            return;
+        }
+        case HostText: {
+            // We have no life-cycles associated with text.
+            return;
+        }
+        case HostPortal: {
+            // We have no life-cycles associated with portals.
+            return;
+        }
+    }
+}
+
+function commitLayoutEffects(root: FiberRoot, committedLanes: Lanes) {
+    while (nextEffect !== null) {
+
+        const effectTag = nextEffect.effectTag;
+        // 调用componentDidUpdate 或 componentDidMount和 hook, 调用this.setState 的 第二个参数
+        if (effectTag & (Update | Callback)) {
+            const current = nextEffect.alternate;
+            commitLayoutEffectOnFiber(root, current, nextEffect, committedLanes);
+        }
+        // 赋值ref
+
+        nextEffect = nextEffect.nextEffect;
+    }
+}
+
+export function runWithPriority<T>(
+    reactPriorityLevel: ReactPriorityLevel,
+    fn: () => T,
+) {
+    // const priorityLevel = reactPriorityToSchedulerPriority(reactPriorityLevel);
+    // return Scheduler_runWithPriority(priorityLevel, fn);
+    fn();
+}
+
+function getHostParentFiber(fiber: Fiber): Fiber {
+    let parent = fiber.return;
+    while (parent !== null) {
+        if (isHostParent(parent)) {
+            return parent;
+        }
+        parent = parent.return;
+    }
+}
+
+function commitPlacement(finishedWork: Fiber): void {
+
+    // Recursively insert all host nodes into the parent.
+    const parentFiber = getHostParentFiber(finishedWork);
+
+    // Note: these two variables *must* always be updated together.
+    let parent;
+    let isContainer;
+    const parentStateNode = parentFiber.stateNode;
+    switch (parentFiber.tag) {
+        case HostComponent:
+            parent = parentStateNode;
+            isContainer = false;
+            break;
+        case HostRoot:
+            parent = parentStateNode.containerInfo;
+            isContainer = true;
+            break;
+    }
+    if (parentFiber.effectTag & ContentReset) {
+        // Reset the text content of the parent before doing any insertions
+        resetTextContent(parent);
+        // Clear ContentReset from the effect tag
+        parentFiber.effectTag &= ~ContentReset;
+    }
+
+    const before = getHostSibling(finishedWork);
+    // We only have the top Fiber that was inserted but we need to recurse down its
+    // children to find all the terminal nodes.
+    if (isContainer) {
+        insertOrAppendPlacementNodeIntoContainer(finishedWork, before, parent);
+    } else {
+        insertOrAppendPlacementNode(finishedWork, before, parent);
+    }
+}
+
+function insertOrAppendPlacementNodeIntoContainer(
+    node: Fiber,
+    before: any,
+    parent: Container,
+): void {
+    const {tag} = node;
+    const isHost = tag === HostComponent || tag === HostText;
+    if (isHost) {
+    const stateNode = isHost ? node.stateNode : node.stateNode.instance;
+
+    // 这里 真真的执行dom操作
+    if (before) {
+        insertInContainerBefore(parent, stateNode, before);
+    } else {
+        appendChildToContainer(parent, stateNode);
+    }
+} else if (tag === HostPortal) {
+    // If the insertion itself is a portal, then we don't want to traverse
+    // down its children. Instead, we'll get insertions from each child in
+    // the portal directly.
+} else {
+    const child = node.child;
+    if (child !== null) {
+        insertOrAppendPlacementNodeIntoContainer(child, before, parent);
+        let sibling = child.sibling;
+        while (sibling !== null) {
+            insertOrAppendPlacementNodeIntoContainer(sibling, before, parent);
+            sibling = sibling.sibling;
+        }
+    }
+}
+}
+
+
+export const ELEMENT_NODE = 1;
+export const TEXT_NODE = 3;
+export const COMMENT_NODE = 8;
+export const DOCUMENT_NODE = 9;
+export const DOCUMENT_FRAGMENT_NODE = 11;
+export function insertInContainerBefore(
+    container: any,
+    child: any,
+    beforeChild: any
+): void {
+    if (container.nodeType === COMMENT_NODE) {
+        container.parentNode.insertBefore(child, beforeChild);
+    } else {
+        container.insertBefore(child, beforeChild);
+    }
+}
+
+export function appendChildToContainer(
+    container: any,
+    child: any,
+): void {
+    let parentNode;
+    if (container.nodeType === COMMENT_NODE) {
+        parentNode = container.parentNode;
+        parentNode.insertBefore(child, container);
+    } else {
+        parentNode = container;
+        parentNode.appendChild(child);
+    }
+}
+
+
+function isHostParent(fiber: Fiber): boolean {
+    return (
+        fiber.tag === HostComponent ||
+        fiber.tag === HostRoot ||
+        fiber.tag === HostPortal
+    );
+}
+
+function getHostSibling(fiber: Fiber) {
+
+    let node: Fiber = fiber;
+    siblings: while (true) {
+        // If we didn't find anything, let's try the next sibling.
+        while (node.sibling === null) {
+            if (node.return === null || isHostParent(node.return)) {
+                // If we pop out of the root or hit the parent the fiber we are the
+                // last sibling.
+                return null;
+            }
+            node = node.return;
+        }
+        node.sibling.return = node.return;
+        node = node.sibling;
+        while (
+            node.tag !== HostComponent &&
+            node.tag !== HostText &&
+            node.tag !== DehydratedFragment
+            ) {
+            if (node.effectTag & Placement) {
+                continue siblings;
+            }
+            if (node.child === null || node.tag === HostPortal) {
+                continue siblings;
+            } else {
+                node.child.return = node;
+                node = node.child;
+            }
+        }
+        if (!(node.effectTag & Placement)) {
+            return node.stateNode;
+        }
+    }
+}
+
+function resetTextContent(fiber: Fiber) {
+    fiber.stateNode.text = null;
+}
+
+function commitMutationEffects(root: FiberRoot, renderPriorityLevel) {
+    // TODO: Should probably move the bulk of this function to commitWork.
+    while (nextEffect !== null) {
+
+        const effectTag = nextEffect.effectTag;
+
+        // 文字节点
+        if (effectTag & ContentReset) {
+            nextEffect.stateNode.text = null;
+        }
+
+        // 更新ref
+
+        // The following switch statement is only concerned about placement,
+        // updates, and deletions. To avoid needing to add a case for every possible
+        // bitmap value, we remove the secondary effects from the effect tag and
+        // switch on that value.
+        const primaryEffectTag =
+            effectTag & (Placement | Update | Deletion);
+        switch (primaryEffectTag) {
+            case Placement: {
+                commitPlacement(nextEffect);
+                // Clear the "placement" from effect tag so that we know that this is
+                // inserted, before any life-cycles like componentDidMount gets called.
+                // TODO: findDOMNode doesn't rely on this any more but isMounted does
+                // and isMounted is deprecated anyway so we should be able to kill this.
+                nextEffect.effectTag &= ~Placement;
+                break;
+            }
+            case PlacementAndUpdate: {
+                // Placement
+                commitPlacement(nextEffect);
+                // Clear the "placement" from effect tag so that we know that this is
+                // inserted, before any life-cycles like componentDidMount gets called.
+                nextEffect.effectTag &= ~Placement;
+
+                // Update
+                const current = nextEffect.alternate;
+                commitWork(current, nextEffect);
+                break;
+            }
+            case Update: {
+                const current = nextEffect.alternate;
+                commitWork(current, nextEffect);
+                break;
+            }
+            case Deletion: {
+                /*
+                  递归调用Fiber节点及其子孙Fiber节点的componentWillUnmount生命周期钩子，从页面移除Fiber节点对应DOM节点
+                  解绑ref
+                  *调度* useEffect的销毁函数
+                */
+                commitDeletion(root, nextEffect);
+                break;
+            }
+        }
+
+        nextEffect = nextEffect.nextEffect;
+    }
+}
+
+function commitUpdate(
+    instance: any,
+    updatePayload: Object,
+    type: string,
+    oldProps: Props,
+    newProps: Props,
+): void {
+    if (oldProps === null) {
+        throw new Error('Should have old props');
+    }
+    hostUpdateCounter++;
+    instance.prop = newProps.prop;
+    instance.hidden = !!newProps.hidden;
+    instance.text = newProps.children;
+};
+
+function commitWork(current: Fiber | null, finishedWork: Fiber): void {
+
+    switch (finishedWork.tag) {
+        case FunctionComponent:
+        case ForwardRef:
+        case MemoComponent:
+        case ClassComponent: {
+            return;
+        }
+        case HostComponent: {
+            const instance: any = finishedWork.stateNode;
+            if (instance != null) {
+                // Commit the work prepared earlier.
+                const newProps = finishedWork.memoizedProps;
+                // For hydration we reuse the update path but we treat the oldProps
+                // as the newProps. The updatePayload will contain the real change in
+                // this case.
+                const oldProps = current !== null ? current.memoizedProps : newProps;
+                const type = finishedWork.type;
+                // TODO: Type the updateQueue to be specific to host components.
+                const updatePayload: null | UpdatePayload = (finishedWork.updateQueue: any);
+                finishedWork.updateQueue = null;
+                if (updatePayload !== null) {
+                    commitUpdate(
+                        instance,
+                        updatePayload,
+                        type,
+                        oldProps,
+                        newProps,
+                    );
+                }
+            }
+            return;
+        }
+        case HostText: {
+            const textInstance: TextInstance = finishedWork.stateNode;
+            const newText: string = finishedWork.memoizedProps;
+
+            const oldText: string =
+                current !== null ? current.memoizedProps : newText;
+            textInstance.text = newText;
+            return;
+        }
+        case HostRoot: {
+
+            return;
+        }
+    }
+    invariant(
+        false,
+        'This unit of work tag should not have side-effects. This error is ' +
+        'likely caused by a bug in React. Please file an issue.',
+    );
+}
+
+
 
 function renderRootSync(root: FiberRoot, lanes: Lanes) {
     do {
@@ -1339,3 +2092,89 @@ function updateHostText(current, workInProgress) {
     return null;
 }
 
+
+function commitUnmount(
+    finishedRoot: FiberRoot,
+    current: Fiber,
+    renderPriorityLevel: ReactPriorityLevel,
+): void {
+
+    switch (current.tag) {
+        case FunctionComponent:
+        case ClassComponent: {
+            const instance = current.stateNode;
+            if (typeof instance.componentWillUnmount === 'function') {
+                instance.componentWillUnmount();
+            }
+            return;
+        }
+        case HostComponent: {
+            return;
+        }
+    }
+}
+
+function commitNestedUnmounts(
+    finishedRoot: FiberRoot,
+    root: Fiber,
+    renderPriorityLevel: ReactPriorityLevel,
+): void {
+    // While we're inside a removed host node we don't want to call
+    // removeChild on the inner nodes because they're removed by the top
+    // call anyway. We also want to call componentWillUnmount on all
+    // composites before this host node is removed from the tree. Therefore
+    // we do an inner loop while we're still inside the host node.
+    let node: Fiber = root;
+    while (true) {
+        commitUnmount(finishedRoot, node, renderPriorityLevel);
+        // Visit children because they may contain more composite or host nodes.
+        // Skip portals because commitUnmount() currently visits them recursively.
+        if (
+            node.child !== null &&
+            // If we use mutation we drill down into portals using commitUnmount above.
+            // If we don't use mutation we drill down into portals here instead.
+            (!supportsMutation || node.tag !== HostPortal)
+        ) {
+            node.child.return = node;
+            node = node.child;
+            continue;
+        }
+        if (node === root) {
+            return;
+        }
+        while (node.sibling === null) {
+            if (node.return === null || node.return === root) {
+                return;
+            }
+            node = node.return;
+        }
+        node.sibling.return = node.return;
+        node = node.sibling;
+    }
+}
+
+function commitDeletion(
+    finishedRoot: FiberRoot,
+    current: Fiber,
+): void {
+    commitNestedUnmounts(finishedRoot, current, renderPriorityLevel);
+    const alternate = current.alternate;
+    detachFiberMutation(current);
+    if (alternate !== null) {
+        detachFiberMutation(alternate);
+    }
+}
+
+function detachFiberMutation(fiber: Fiber) {
+    fiber.alternate = null;
+    fiber.child = null;
+    fiber.dependencies = null;
+    fiber.firstEffect = null;
+    fiber.lastEffect = null;
+    fiber.memoizedProps = null;
+    fiber.memoizedState = null;
+    fiber.pendingProps = null;
+    fiber.return = null;
+    fiber.stateNode = null;
+    fiber.updateQueue = null;
+}
