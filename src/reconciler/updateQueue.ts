@@ -1,5 +1,8 @@
 import { IFiber as Fiber, Update, UpdateQueue, SharedQueue } from '../type';
 
+let syncQueue: Array<any> | null = null;
+
+
 export function enqueueUpdate<State>(fiber: Fiber, update: Update<State>) {
   const updateQueue = fiber.updateQueue;
   if (updateQueue === null) {

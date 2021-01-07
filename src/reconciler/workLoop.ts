@@ -1,5 +1,5 @@
 import {IFiber as Fiber, Update as UpdateType, UpdateQueue} from "../type";
-import {Lane, Lanes, NoLanes, SyncLane} from "./fiberLanes";
+import {Lane, Lanes, NoLane, NoLanes, NoTimestamp, SyncLane} from "./fiberLanes";
 import {FiberRoot} from "../renderer";
 import {
     Block,
@@ -29,7 +29,7 @@ import {markRootUpdated} from "./index";
 import {
     Callback,
     ContentReset, Deletion,
-    DidCapture, HostEffectMask, Incomplete,
+    DidCapture, HostEffectMask, Incomplete, NoEffect, Passive,
     PerformedWork,
     Placement, PlacementAndUpdate,
     Ref,
@@ -40,10 +40,14 @@ import {
 import {cloneUpdateQueue, enqueueUpdate, flushSyncCallbackQueue} from "./updateQueue";
 import {mountChildFibers, reconcileChildFibers} from "./reconcileChild";
 import {completeUnitOfWork} from "./completeWork";
+import {createWorkInProgress} from "./fiber";
 
 let pendingPassiveHookEffectsMount: Array<any | Fiber> = [];
 
 let rootDoesHavePassiveEffects: boolean = false;
+
+const NESTED_UPDATE_LIMIT = 50;
+let nestedUpdateCount: number = 0;
 
 
 
@@ -65,8 +69,10 @@ let nestedPassiveUpdateCount: number = 0;
 let workInProgressRoot: FiberRoot | null = null;
 let nextEffect: Fiber | null = null;
 
+let rootWithNestedUpdates: FiberRoot | null = null;
 
-let workInProgressRootRenderLanes: Lanes = NoLanes;
+
+let workInProgressRootRenderLanes: Lanes = SyncLane;
 
 
 
@@ -177,13 +183,13 @@ function performSyncWorkOnRoot(root) {
     // will commit it even if something suspended.
     const finishedWork: Fiber = root.current.alternate;
     root.finishedWork = finishedWork;
-    root.finishedLanes = lanes;
+    root.finishedLanes = SyncLane;
     // 开始 Commit 阶段
     commitRoot(root);
 
     // Before exiting, make sure there's a callback scheduled for the next
     // pending level.
-    ensureRootIsScheduled(root, now());
+    ensureRootIsScheduled(root, Date.now());
 
     return null;
 }
@@ -265,6 +271,50 @@ function flushPassiveEffects() {
         return true;
     }
     flushPassiveEffectsImpl();
+}
+
+function commitBeforeMutationEffectOnFiber(
+    current: Fiber | null,
+    finishedWork: Fiber,
+): void {
+    switch (finishedWork.tag) {
+        case FunctionComponent:
+        case ClassComponent: {
+            return;
+        }
+        case HostRoot: {
+            return;
+        }
+        case HostComponent:
+        case HostText:
+        case HostPortal:
+        case IncompleteClassComponent:
+            // Nothing to do for these component types
+            return;
+    }
+}
+
+function commitBeforeMutationEffects() {
+    while (nextEffect !== null) {
+        const current = nextEffect.alternate;
+
+        const effectTag = nextEffect.effectTag;
+        // 调用 getSnapshotBeforeUpdate
+        if ((effectTag & Snapshot) !== NoEffect) {
+
+            commitBeforeMutationEffectOnFiber(current, nextEffect);
+        }
+        // *调度* useEffect
+        if ((effectTag & Passive) !== NoEffect) {
+            // If there are passive effects, schedule a callback to flush at
+            // the earliest opportunity.
+            if (!rootDoesHavePassiveEffects) {
+                rootDoesHavePassiveEffects = true;
+                flushPassiveEffects();
+            }
+        }
+        nextEffect = nextEffect.nextEffect;
+    }
 }
 
 function commitRootImpl(root, renderPriorityLevel) {
@@ -413,27 +463,16 @@ function commitRootImpl(root, renderPriorityLevel) {
 
     // Always call this before exiting `commitRoot`, to ensure that any
     // additional work on this root is scheduled.
-    ensureRootIsScheduled(root, now());
-
-    if (hasUncaughtError) {
-        hasUncaughtError = false;
-        const error = firstUncaughtError;
-        firstUncaughtError = null;
-        throw error;
-    }
-
-    if ((executionContext & LegacyUnbatchedContext) !== NoContext) {
-        // This is a legacy edge case. We just committed the initial mount of
-        // a ReactDOM.render-ed root inside of batchedUpdates. The commit fired
-        // synchronously, but layout updates should be deferred until the end
-        // of the batch.
-        return null;
-    }
+    ensureRootIsScheduled(root, Date.now());
 
     // If layout work was scheduled, flush it now.
     flushSyncCallbackQueue();
 
     return null;
+}
+
+function pickArbitraryLaneIndex(lanes: Lane | Lanes) {
+    return 31 - Math.clz32(lanes);
 }
 
 export function markStarvedLanesAsExpired(
@@ -447,29 +486,6 @@ export function markStarvedLanesAsExpired(
     const expirationTimes = root.expirationTimes;
 
     let lanes = pendingLanes;
-    while (lanes > 0) {
-        const index = pickArbitraryLaneIndex(lanes);
-        const lane = 1 << index;
-
-        const expirationTime = expirationTimes[index];
-        if (expirationTime === NoTimestamp) {
-            // Found a pending lane with no expiration time. If it's not suspended, or
-            // if it's pinged, assume it's CPU-bound. Compute a new expiration time
-            // using the current time.
-            if (
-                (lane & suspendedLanes) === NoLanes ||
-                (lane & pingedLanes) !== NoLanes
-            ) {
-                // Assumes timestamps are monotonically increasing.
-                expirationTimes[index] = computeExpirationTime(lane, currentTime);
-            }
-        } else if (expirationTime <= currentTime) {
-            // This lane expired
-            root.expiredLanes |= lane;
-        }
-
-        lanes &= ~lane;
-    }
 }
 
 function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
@@ -492,8 +508,8 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
 
 
     root.callbackId = newCallbackId;
-    root.callbackPriority = newCallbackPriority;
-    root.callbackNode = newCallbackNode;
+    // root.callbackPriority = newCallbackPriority;
+    // root.callbackNode = newCallbackNode;
 }
 
 
@@ -511,7 +527,7 @@ export function commitUpdateQueue<State>(
             const callback = effect.callback;
             if (callback !== null) {
                 effect.callback = null;
-                callCallback(callback, instance);
+                callback();
             }
         }
     }
@@ -546,7 +562,7 @@ function commitLayoutEffectOnFiber(
 
             const updateQueue = finishedWork.updateQueue;
             if (updateQueue !== null) {
-                commitUpdateQueue(finishedWork, updateQueue, instance);
+                commitUpdateQueue(finishedWork, updateQueue, null);
             }
             return;
         case HostRoot: {
@@ -558,7 +574,7 @@ function commitLayoutEffectOnFiber(
                 if (finishedWork.child !== null) {
                     switch (finishedWork.child.tag) {
                         case HostComponent:
-                            instance = getPublicInstance(finishedWork.child.stateNode);
+                            instance = finishedWork.child.stateNode;
                             break;
                         case ClassComponent:
                             instance = finishedWork.child.stateNode;
@@ -654,10 +670,56 @@ function commitPlacement(finishedWork: Fiber): void {
     }
 }
 
+export function insertBefore(
+    parentInstance: any,
+    child: any,
+    beforeChild: any,
+): void {
+    parentInstance.insertBefore(child, beforeChild);
+}
+
+export function appendChild(
+    parentInstance: any,
+    child: any,
+): void {
+    parentInstance.appendChild(child);
+}
+
+function insertOrAppendPlacementNode(
+    node: Fiber,
+    before: any,
+    parent: any,
+): void {
+    const {tag} = node;
+    const isHost = tag === HostComponent || tag === HostText;
+    if (isHost) {
+    const stateNode = isHost ? node.stateNode : node.stateNode.instance;
+    if (before) {
+        insertBefore(parent, stateNode, before);
+    } else {
+        appendChild(parent, stateNode);
+    }
+} else if (tag === HostPortal) {
+    // If the insertion itself is a portal, then we don't want to traverse
+    // down its children. Instead, we'll get insertions from each child in
+    // the portal directly.
+} else {
+    const child = node.child;
+    if (child !== null) {
+        insertOrAppendPlacementNode(child, before, parent);
+        let sibling = child.sibling;
+        while (sibling !== null) {
+            insertOrAppendPlacementNode(sibling, before, parent);
+            sibling = sibling.sibling;
+        }
+    }
+}
+}
+
 function insertOrAppendPlacementNodeIntoContainer(
     node: Fiber,
     before: any,
-    parent: Container,
+    parent: any,
 ): void {
     const {tag} = node;
     const isHost = tag === HostComponent || tag === HostText;
@@ -745,8 +807,7 @@ function getHostSibling(fiber: Fiber) {
         node = node.sibling;
         while (
             node.tag !== HostComponent &&
-            node.tag !== HostText &&
-            node.tag !== DehydratedFragment
+            node.tag !== HostText
             ) {
             if (node.effectTag & Placement) {
                 continue siblings;
@@ -833,17 +894,16 @@ function commitUpdate(
     instance: any,
     updatePayload: Object,
     type: string,
-    oldProps: Props,
-    newProps: Props,
+    oldProps: any,
+    newProps: any,
 ): void {
     if (oldProps === null) {
         throw new Error('Should have old props');
     }
-    hostUpdateCounter++;
     instance.prop = newProps.prop;
     instance.hidden = !!newProps.hidden;
     instance.text = newProps.children;
-};
+}
 
 function commitWork(current: Fiber | null, finishedWork: Fiber): void {
 
@@ -865,7 +925,7 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
                 const oldProps = current !== null ? current.memoizedProps : newProps;
                 const type = finishedWork.type;
                 // TODO: Type the updateQueue to be specific to host components.
-                const updatePayload: null | UpdatePayload = (finishedWork.updateQueue: any);
+                const updatePayload: any = finishedWork.updateQueue;
                 finishedWork.updateQueue = null;
                 if (updatePayload !== null) {
                     commitUpdate(
@@ -880,7 +940,7 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
             return;
         }
         case HostText: {
-            const textInstance: TextInstance = finishedWork.stateNode;
+            const textInstance: any = finishedWork.stateNode;
             const newText: string = finishedWork.memoizedProps;
 
             const oldText: string =
@@ -893,16 +953,42 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
             return;
         }
     }
-    invariant(
-        false,
-        'This unit of work tag should not have side-effects. This error is ' +
-        'likely caused by a bug in React. Please file an issue.',
-    );
+}
+
+function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
+    root.finishedWork = null;
+    root.finishedLanes = NoLanes;
+
+    // const timeoutHandle = root.timeoutHandle;
+    // if (timeoutHandle !== noTimeout) {
+    //     // The root previous suspended and scheduled a timeout to commit a fallback
+    //     // state. Now that we have additional work, cancel the timeout.
+    //     root.timeoutHandle = noTimeout;
+    //     // $FlowFixMe Complains noTimeout is not a TimeoutID, despite the check above
+    //     cancelTimeout(timeoutHandle);
+    // }
+
+    // if (workInProgress !== null) {
+    //     let interruptedWork = workInProgress.return;
+    //     while (interruptedWork !== null) {
+    //         unwindInterruptedWork(interruptedWork);
+    //         interruptedWork = interruptedWork.return;
+    //     }
+    // }
+    workInProgressRoot = root;
+    workInProgress = createWorkInProgress(root.current, null);
+    workInProgressRootRenderLanes = lanes;
+    // workInProgressRootSkippedLanes = NoLanes;
+    // workInProgressRootUpdatedLanes = NoLanes;
+    // workInProgressRootPingedLanes = NoLanes;
+
 }
 
 
-
 function renderRootSync(root: FiberRoot, lanes: Lanes) {
+    if (workInProgressRoot !== root || workInProgressRootRenderLanes !== lanes) {
+        // prepareFreshStack(root, SyncLane);
+    }
     do {
         try {
             workLoopSync();
@@ -918,6 +1004,7 @@ function handleError() {
 }
 
 function workLoopSync() {
+    console.log('excute workLoopSync');
     while (workInProgress !== null) {
         performUnitOfWork(workInProgress);
     }
@@ -927,7 +1014,7 @@ function performUnitOfWork(unitOfWork: Fiber): void {
     const current = unitOfWork.alternate;
 
     let next;
-    next = beginWork(current, unitOfWork, subtreeRenderLanes);
+    next = beginWork(current, unitOfWork, SyncLane);
 
     unitOfWork.memoizedProps = unitOfWork.pendingProps;
     // 此时next为 child， 如果child 为空 则会 将 workInProgress 赋值为 workInProgress.sibling
@@ -1042,7 +1129,7 @@ function mountIndeterminateComponent(
         workInProgress,
         Component,
         props,
-        context,
+        {},
         renderLanes,
     );
     // React DevTools reads this flag.
@@ -1085,7 +1172,7 @@ function mountIndeterminateComponent(
             workInProgress,
             Component,
             true,
-            hasContext,
+            true,
             renderLanes,
         );
     } else {
@@ -1244,7 +1331,7 @@ function mountClassInstance(
         (typeof instance.UNSAFE_componentWillMount === 'function' ||
             typeof instance.componentWillMount === 'function')
     ) {
-        callComponentWillMount(workInProgress, instance);
+        instance.componentWillMount(instance);
         // If we had additional state updates during this life-cycle, let's
         // process them now.
         processUpdateQueue(workInProgress, newProps, instance, renderLanes);
@@ -1264,7 +1351,7 @@ export function processUpdateQueue<State>(
 ): void {
     const queue: UpdateQueue<State> = workInProgress.updateQueue;
 
-    hasForceUpdate = false;
+    // hasForceUpdate = false;
 
 
     let firstBaseUpdate = queue.firstBaseUpdate;
@@ -1351,7 +1438,7 @@ export function processUpdateQueue<State>(
                     newLastBaseUpdate = newLastBaseUpdate.next = clone;
                 }
                 // Update the remaining priority in the queue.
-                newLanes = mergeLanes(newLanes, updateLane);
+                newLanes = SyncLane;
             } else {
                 // 这里不用跳过
                 // This update does have sufficient priority.
@@ -1469,7 +1556,7 @@ export function isSubsetOfLanes(set: Lanes, subset: Lanes | Lane) {
 function getStateFromUpdate<State>(
     workInProgress: Fiber,
     queue: UpdateQueue<State>,
-    update: Update<State>,
+    update: UpdateType<State>,
     prevState: State,
     nextProps: any,
     instance: any,
@@ -1508,7 +1595,6 @@ function getStateFromUpdate<State>(
             return Object.assign({}, prevState, partialState);
         }
         case ForceUpdate: {
-            hasForceUpdate = true;
             return prevState;
         }
     }
@@ -1536,7 +1622,7 @@ function finishClassComponent(
     const instance = workInProgress.stateNode;
 
     // Rerender
-    ReactCurrentOwner.current = workInProgress;
+    // ReactCurrentOwner.current = workInProgress;
     let nextChildren;
     if (
         didCaptureError &&
@@ -1718,7 +1804,7 @@ function updateClassComponent(
         workInProgress,
         Component,
         shouldUpdate,
-        hasContext,
+        true,
         renderLanes,
     );
     return nextUnitOfWork;
@@ -1729,7 +1815,7 @@ function constructClassInstance(
     ctor: any,
     props: any,
 ): any {
-    let context = emptyContextObject;
+    let context = {};
 
 
     const instance = new ctor(props, context);
@@ -1769,13 +1855,13 @@ function resumeMountClassInstance(
                 workInProgress,
                 instance,
                 newProps,
-                nextContext,
+                {},
             );
         }
     }
 
     const oldState = workInProgress.memoizedState;
-    let newState = (instance.state = oldState);
+    let newState = instance.state = oldState;
     processUpdateQueue(workInProgress, newProps, instance, renderLanes);
     newState = workInProgress.memoizedState;
     if (
@@ -1808,7 +1894,7 @@ function resumeMountClassInstance(
             newProps,
             oldState,
             newState,
-            nextContext,
+            {},
         );
 
     if (shouldUpdate) {
@@ -1840,7 +1926,7 @@ function resumeMountClassInstance(
     // if shouldComponentUpdate returns false.
     instance.props = newProps;
     instance.state = newState;
-    instance.context = nextContext;
+    // instance.context = nextContext;
 
     return shouldUpdate;
 }
@@ -1924,7 +2010,7 @@ function updateClassInstance(
             typeof instance.componentWillReceiveProps === 'function')
     ) {
         if (
-            unresolvedOldProps !== unresolvedNewProps ||
+            unresolvedOldProps !== unresolvedNewProps
         ) {
             callComponentWillReceiveProps(
                 workInProgress,
@@ -2063,6 +2149,19 @@ function updateHostRoot(current, workInProgress, renderLanes) {
     return workInProgress.child;
 }
 
+export function shouldSetTextContent(type: string, props: any): boolean {
+    return (
+        type === 'textarea' ||
+        type === 'option' ||
+        type === 'noscript' ||
+        typeof props.children === 'string' ||
+        typeof props.children === 'number' ||
+        (typeof props.dangerouslySetInnerHTML === 'object' &&
+            props.dangerouslySetInnerHTML !== null &&
+            props.dangerouslySetInnerHTML.__html != null)
+    );
+}
+
 function updateHostComponent(
     current: Fiber | null,
     workInProgress: Fiber,
@@ -2133,7 +2232,7 @@ function commitNestedUnmounts(
             node.child !== null &&
             // If we use mutation we drill down into portals using commitUnmount above.
             // If we don't use mutation we drill down into portals here instead.
-            (!supportsMutation || node.tag !== HostPortal)
+            node.tag !== HostPortal
         ) {
             node.child.return = node;
             node = node.child;
@@ -2157,7 +2256,7 @@ function commitDeletion(
     finishedRoot: FiberRoot,
     current: Fiber,
 ): void {
-    commitNestedUnmounts(finishedRoot, current, renderPriorityLevel);
+    commitNestedUnmounts(finishedRoot, current, 99);
     const alternate = current.alternate;
     detachFiberMutation(current);
     if (alternate !== null) {

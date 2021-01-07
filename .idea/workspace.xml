@@ -3,9 +3,11 @@
   <component name="ChangeListManager">
     <list default="true" id="8fac909d-0d36-45f7-9de4-141967d3cad0" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/reconciler/completeWork.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/reconciler/completeWork.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/reconciler/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/reconciler/index.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/reconciler/updateQueue.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/reconciler/updateQueue.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/reconciler/workLoop.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/reconciler/workLoop.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/renderer/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/renderer/index.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -58,7 +60,7 @@
       <option name="presentableId" value="Default" />
       <updated>1609910379204</updated>
       <workItem from="1609910381222" duration="2319000" />
-      <workItem from="1609913113130" duration="27103000" />
+      <workItem from="1609913113130" duration="35218000" />
     </task>
     <task id="LOCAL-00001" summary="jsx complete">
       <created>1609913618601</created>
@@ -88,7 +90,14 @@
       <option name="project" value="LOCAL" />
       <updated>1609933893732</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="update">
+      <created>1609941022892</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1609941022892</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -99,5 +108,23 @@
     <MESSAGE value="update: Readme" />
     <MESSAGE value="update" />
     <option name="LAST_COMMIT_MESSAGE" value="update" />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" type="javascript">
+          <url>file://$PROJECT_DIR$/src/reconciler/workLoop.ts</url>
+          <line>176</line>
+          <properties lambdaOrdinal="-1" />
+          <option name="timeStamp" value="12" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="javascript">
+          <url>file://$PROJECT_DIR$/src/reconciler/workLoop.ts</url>
+          <line>2148</line>
+          <properties lambdaOrdinal="-1" />
+          <option name="timeStamp" value="17" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
   </component>
 </project>

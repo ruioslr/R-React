@@ -3,5 +3,6 @@ import { render } from './renderer';
 
 
 export {
-    h
+    h,
+    render
 }

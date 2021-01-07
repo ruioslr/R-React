@@ -4,9 +4,8 @@ import {NoLanes} from "../reconciler/fiberLanes";
 import {LegacyRoot} from "../share/RootTags";
 import {createHostRootFiber} from "../reconciler/fiber";
 import {getPublicRootInstance, updateContainer} from "../reconciler";
+import {initializeUpdateQueue} from "../reconciler/workLoop";
 
-
-const tasks:Task[] = [];
 
 export function render(element: ReElement, container: HTMLElement & {_reactRootContainer: any}, done?: () => void) {
     let reactRoot: {_internalRoot: IFiberRoot} | undefined = container._reactRootContainer;
@@ -18,7 +17,7 @@ export function render(element: ReElement, container: HTMLElement & {_reactRootC
         fiberRoot = reactRoot._internalRoot;
     }
     // 现在只有同步方式
-    updateContainer(children, fiberRoot, parentComponent, callback);
+    updateContainer(element, fiberRoot, null, done);
     return getPublicRootInstance(fiberRoot);
 }
 
@@ -29,8 +28,10 @@ function createReactRoot(container, tag: WorkTag) {
 }
 
 function createFiberRoot(container, tag: WorkTag): IFiberRoot {
-    const root = new (FiberRootNode(containerInfo, tag) as any);
+    const root = new FiberRootNode(container, tag);
     root.current = createHostRootFiber(tag);
+    root.current.stateNode = root;
+    initializeUpdateQueue(root.current);
     return root as IFiberRoot;
 }
 
@@ -41,13 +42,13 @@ export function FiberRootNode(containerInfo, tag) {
     this.current = null;
     this.pingCache = null;
     this.finishedWork = null;
-    this.timeoutHandle = noTimeout;
+    // this.timeoutHandle = noTimeout;
     this.context = null;
     this.pendingContext = null;
     this.callbackNode = null;
     this.callbackId = NoLanes;
-    this.callbackPriority = NoLanePriority;
-    this.expirationTimes = createLaneMap(NoTimestamp);
+    // this.callbackPriority = NoLanePriority;
+    // this.expirationTimes = createLaneMap(NoTimestamp);
 
     this.pendingLanes = NoLanes;
     this.suspendedLanes = NoLanes;
@@ -57,10 +58,10 @@ export function FiberRootNode(containerInfo, tag) {
     this.finishedLanes = NoLanes;
 
     this.entangledLanes = NoLanes;
-    this.entanglements = createLaneMap(NoLanes);
-    return this;
+    // this.entanglements = createLaneMap(NoLanes);
 }
 
-export type FiberRoot = ReturnType<typeof FiberRootNode>;
+// export type FiberRoot = ReturnType<typeof FiberRootNode>;
+export type FiberRoot = any;
 
 

@@ -2,9 +2,9 @@ import {Lane, SyncLane} from "./fiberLanes";
 import {IFiber, Update} from "../type";
 import {enqueueUpdate} from "./updateQueue";
 import {FiberRoot, FiberRootNode} from '../renderer'
-import {HostRoot} from "../share/WorkTag";
+import {HostComponent, HostRoot} from "../share/WorkTag";
+import {scheduleUpdateOnFiber, UpdateState} from "./workLoop";
 
-const NESTED_UPDATE_LIMIT = 50;
 let nestedUpdateCount: number = 0;
 let rootWithNestedUpdates: FiberRoot | null = null;
 
@@ -18,7 +18,7 @@ export function updateContainer(
     // TODO: 现在只以同步模式
     const lane = SyncLane;
 
-    const update = createUpdate(eventTime, lane);
+    const update = createUpdate(null, lane);
 
     update.payload = {element};
 
@@ -28,7 +28,7 @@ export function updateContainer(
     }
 
     enqueueUpdate(current, update);
-    scheduleUpdateOnFiber(current, lane, eventTime);
+    scheduleUpdateOnFiber(current, lane, null);
 
     return lane;
 }
