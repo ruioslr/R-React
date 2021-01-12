@@ -24,9 +24,21 @@ import {
   removeEventListener, addTrappedEventListener
 } from "./domTopLevelEventTypes";
 import {COMMENT_NODE, DOCUMENT_FRAGMENT_NODE, DOCUMENT_NODE} from "./workLoop";
+import {
+  AUTOFOCUS,
+  CHILDREN,
+  DANGEROUSLY_SET_INNER_HTML,
+  HTML,
+  setInnerHTML,
+  setTextContent,
+  setValueForStyles
+} from "./domOperator";
+import {setValueForProperty} from "./domOperator";
 
 export const registrationNameDependencies = {};
 export const STYLE = 'style';
+
+const registrationNameModules = {};
 
 const enableModernEventSystem = true;
 
@@ -254,13 +266,13 @@ export function setInitialProperties(
 
   // assertValidProps(tag, props);
 
-  // setInitialDOMProperties(
-  //     tag,
-  //     domElement,
-  //     rootContainerElement,
-  //     props,
-  //     isCustomComponentTag,
-  // );
+  setInitialDOMProperties(
+      tag,
+      domElement,
+      rootContainerElement,
+      props,
+      false,
+  );
 
   // switch (tag) {
   //   case 'input':
@@ -288,6 +300,55 @@ export function setInitialProperties(
   //     }
   //     break;
   // }
+}
+
+// 文字节点在这里被设置值
+function setInitialDOMProperties(
+    tag: string,
+    domElement: any,
+    rootContainerElement: any,
+    nextProps: any,
+    isCustomComponentTag: boolean,
+): void {
+  for (const propKey in nextProps) {
+    if (!nextProps.hasOwnProperty(propKey)) {
+      continue;
+    }
+    const nextProp = nextProps[propKey];
+    if (propKey === STYLE) {
+      // Relies on `updateStylesByID` not mutating `styleUpdates`.
+      setValueForStyles(domElement, nextProp);
+    } else if (propKey === DANGEROUSLY_SET_INNER_HTML) {
+      const nextHtml = nextProp ? nextProp[HTML] : undefined;
+      if (nextHtml != null) {
+        setInnerHTML(domElement, nextHtml);
+      }
+    } else if (propKey === CHILDREN) {
+      if (typeof nextProp === 'string') {
+        // Avoid setting initial textContent when the text is empty. In IE11 setting
+        // textContent on a <textarea> will cause the placeholder to not
+        // show within the <textarea> until it has been focused and blurred again.
+        // https://github.com/facebook/react/issues/6731#issuecomment-254874553
+        const canSetTextContent = tag !== 'textarea' || nextProp !== '';
+        if (canSetTextContent) {
+          setTextContent(domElement, nextProp);
+        }
+      } else if (typeof nextProp === 'number') {
+        setTextContent(domElement, '' + nextProp);
+      }
+    } else if (propKey === AUTOFOCUS) {
+      // We polyfill it separately on the client during commit.
+      // We could have excluded it in the property list instead of
+      // adding a special case here, but then it wouldn't be emitted
+      // on server rendering (but we *do* want to emit it in SSR).
+    } else if (registrationNameModules.hasOwnProperty(propKey)) {
+      if (nextProp != null) {
+        ensureListeningTo(rootContainerElement, propKey);
+      }
+    } else if (nextProp != null) {
+      setValueForProperty(domElement, propKey, nextProp, isCustomComponentTag);
+    }
+  }
 }
 
 function ReactDOMOptionGetHostProps(element: any, props: any) {

@@ -23,6 +23,7 @@
   "author": "ruios",
   "license": "MIT",
   "devDependencies": {
+    "react": "16.13.0",
     "@types/jest": "^24.0.15",
     "codecov": "^3.6.1",
     "cross-env": "^5.2.0",
