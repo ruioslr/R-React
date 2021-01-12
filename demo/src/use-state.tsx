@@ -4,7 +4,7 @@ function App() {
 
   return (
     <div>
-      <button onClick={() => setCount({} as any)}>{count}</button>
+      <button>hello Re0</button>
     </div>
   )
 }

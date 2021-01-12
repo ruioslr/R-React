@@ -3,11 +3,11 @@
   <component name="ChangeListManager">
     <list default="true" id="8fac909d-0d36-45f7-9de4-141967d3cad0" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/index.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/reconciler/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/reconciler/index.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/reconciler/updateQueue.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/reconciler/updateQueue.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/demo/src/use-state.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/demo/src/use-state.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/h.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/h.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/reconciler/completeWork.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/reconciler/completeWork.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/reconciler/workLoop.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/reconciler/workLoop.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/renderer/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/renderer/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/type.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/type.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -60,7 +60,12 @@
       <option name="presentableId" value="Default" />
       <updated>1609910379204</updated>
       <workItem from="1609910381222" duration="2319000" />
-      <workItem from="1609913113130" duration="35218000" />
+      <workItem from="1609913113130" duration="48845000" />
+      <workItem from="1610357679266" duration="1547000" />
+      <workItem from="1610361423083" duration="210000" />
+      <workItem from="1610361670147" duration="2251000" />
+      <workItem from="1610363962180" duration="4681000" />
+      <workItem from="1610436281762" duration="7273000" />
     </task>
     <task id="LOCAL-00001" summary="jsx complete">
       <created>1609913618601</created>
@@ -114,17 +119,40 @@
       <breakpoints>
         <line-breakpoint enabled="true" type="javascript">
           <url>file://$PROJECT_DIR$/src/reconciler/workLoop.ts</url>
-          <line>176</line>
-          <properties lambdaOrdinal="-1" />
-          <option name="timeStamp" value="12" />
+          <line>742</line>
+          <option name="timeStamp" value="51" />
         </line-breakpoint>
         <line-breakpoint enabled="true" type="javascript">
           <url>file://$PROJECT_DIR$/src/reconciler/workLoop.ts</url>
-          <line>2148</line>
-          <properties lambdaOrdinal="-1" />
-          <option name="timeStamp" value="17" />
+          <line>724</line>
+          <option name="timeStamp" value="55" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="javascript">
+          <url>file://$PROJECT_DIR$/src/reconciler/workLoop.ts</url>
+          <line>1169</line>
+          <option name="timeStamp" value="56" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="javascript">
+          <url>file://$PROJECT_DIR$/src/reconciler/completeWork.ts</url>
+          <line>67</line>
+          <option name="timeStamp" value="60" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
+    <watches-manager>
+      <configuration name="http://localhost:51731/">
+        <watch expression="parentNode" language="TypeScript" />
+        <watch expression="parentNode.nodeType" language="TypeScript" />
+      </configuration>
+      <configuration name="http://localhost:1234/">
+        <watch expression="workInProgress" language="TypeScript" />
+        <watch expression="returnFiber" language="TypeScript" />
+        <watch expression="completedWork" language="TypeScript" />
+      </configuration>
+      <configuration name="http://localhost:60308/">
+        <watch expression="current" language="TypeScript" />
+        <watch expression="workInProgress" language="TypeScript" />
+      </configuration>
+    </watches-manager>
   </component>
 </project>

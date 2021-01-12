@@ -1,5 +1,6 @@
 import { Attributes, FC, FreNode, IFiber, PropsWithChildren, FreElement } from './type'
 import { some, isStr } from './util'
+import {REACT_ELEMENT_TYPE} from "./share/ReactSymbols";
 
 // Supported and simplify jsx2
 // * https://github.com/reactjs/rfcs/blob/createlement-rfc/text/0000-create-element-changes.md
@@ -36,7 +37,7 @@ export const h = function <P extends Attributes = {}>(type: FC<P>, attrs: P): Pa
     // delete them to reduce loop performance
     delete props.key
 
-    return { type, props, key, ref } as Partial<IFiber>
+    return { type, props, key, ref, $$typeof: REACT_ELEMENT_TYPE } as Partial<IFiber>
 }
 
 export function createText(vnode: string) {

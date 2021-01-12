@@ -29,6 +29,7 @@ export interface ReElement<P extends Attributes = any, T = any> {
   type: T;
   props: P;
   key: string;
+  $$typeof: number,
 }
 
 export type HookTypes = 'list' | 'effect' | 'layout';

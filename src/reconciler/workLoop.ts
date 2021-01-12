@@ -39,8 +39,9 @@ import {
 } from "../share/SideEffectTags";
 import {cloneUpdateQueue, enqueueUpdate, flushSyncCallbackQueue} from "./updateQueue";
 import {mountChildFibers, reconcileChildFibers} from "./reconcileChild";
-import {completeUnitOfWork} from "./completeWork";
+// import {completeUnitOfWork} from "./completeWork";
 import {createWorkInProgress} from "./fiber";
+import {completeWork} from "./completeWork";
 
 let pendingPassiveHookEffectsMount: Array<any | Fiber> = [];
 
@@ -987,14 +988,15 @@ function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
 
 function renderRootSync(root: FiberRoot, lanes: Lanes) {
     if (workInProgressRoot !== root || workInProgressRootRenderLanes !== lanes) {
-        // prepareFreshStack(root, SyncLane);
+        prepareFreshStack(root, SyncLane);
     }
     do {
         try {
             workLoopSync();
             break;
-        } catch (thrownValue) {
-            handleError();
+        } catch (error) {
+            console.error(error);
+            return;
         }
     } while (true);
 }
@@ -1647,7 +1649,7 @@ function finishClassComponent(
     return workInProgress.child;
 }
 
-function markRef(current: Fiber | null, workInProgress: Fiber) {
+export function markRef(current: Fiber | null, workInProgress: Fiber) {
     const ref = workInProgress.ref;
     if (
         (current === null && ref !== null) ||
@@ -2170,7 +2172,6 @@ function updateHostComponent(
     const type = workInProgress.type;
     const nextProps = workInProgress.pendingProps;
     const prevProps = current !== null ? current.memoizedProps : null;
-
     let nextChildren = nextProps.children;
     const isDirectTextChild = shouldSetTextContent(type, nextProps);
 
@@ -2276,4 +2277,72 @@ function detachFiberMutation(fiber: Fiber) {
     fiber.return = null;
     fiber.stateNode = null;
     fiber.updateQueue = null;
+}
+
+export function completeUnitOfWork(unitOfWork: Fiber): void {
+    let completedWork = unitOfWork;
+    do {
+        const current = completedWork.alternate;
+        const returnFiber = completedWork.return;
+
+        if ((completedWork.effectTag & Incomplete) === NoEffect) {
+            let next;
+            next = completeWork(current, completedWork, SyncLane);
+
+            if (next !== null) {
+                // Completing this fiber spawned new work. Work on that next.
+                workInProgress = next;
+                return;
+            }
+
+            if (
+                returnFiber !== null &&
+                // Do not append effects to parents if a sibling failed to complete
+                (returnFiber.effectTag & Incomplete) === NoEffect
+            ) {
+                // Append all the effects of the subtree and this fiber onto the effect
+                // list of the parent. The completion order of the children affects the
+                // side-effect order.
+                if (returnFiber.firstEffect === null) {
+                    returnFiber.firstEffect = completedWork.firstEffect;
+                }
+                if (completedWork.lastEffect !== null) {
+                    if (returnFiber.lastEffect !== null) {
+                        returnFiber.lastEffect.nextEffect = completedWork.firstEffect;
+                    }
+                    returnFiber.lastEffect = completedWork.lastEffect;
+                }
+
+                // If this fiber had side-effects, we append it AFTER the children's
+                // side-effects. We can perform certain side-effects earlier if needed,
+                // by doing multiple passes over the effect list. We don't want to
+                // schedule our own side-effect on our own list because if end up
+                // reusing children we'll schedule this effect onto itself since we're
+                // at the end.
+                const effectTag = completedWork.effectTag;
+
+                // Skip both NoWork and PerformedWork tags when creating the effect
+                // list. PerformedWork effect is read by React DevTools but shouldn't be
+                // committed.
+                if (effectTag > PerformedWork) {
+                    if (returnFiber.lastEffect !== null) {
+                        returnFiber.lastEffect.nextEffect = completedWork;
+                    } else {
+                        returnFiber.firstEffect = completedWork;
+                    }
+                    returnFiber.lastEffect = completedWork;
+                }
+            }
+        }
+
+        const siblingFiber = completedWork.sibling;
+        if (siblingFiber !== null) {
+            // If there is more work to do in this returnFiber, do that next.
+            workInProgress = siblingFiber;
+            return;
+        }
+        // Otherwise, return to the parent
+        completedWork = returnFiber;
+        workInProgress = completedWork;
+    } while (completedWork !== null);
 }
