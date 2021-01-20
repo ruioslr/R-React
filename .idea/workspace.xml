@@ -2,13 +2,10 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="8fac909d-0d36-45f7-9de4-141967d3cad0" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/src/reconciler/domOperator.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/index.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/demo/src/use-state.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/demo/src/use-state.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/reconciler/completeWork.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/reconciler/completeWork.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/share/ReactSymbols.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/share/ReactSymbols.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/yarn.lock" beforeDir="false" afterPath="$PROJECT_DIR$/yarn.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/reconciler/domTopLevelEventTypes.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/reconciler/domTopLevelEventTypes.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -66,7 +63,11 @@
       <workItem from="1610361423083" duration="210000" />
       <workItem from="1610361670147" duration="2251000" />
       <workItem from="1610363962180" duration="4681000" />
-      <workItem from="1610436281762" duration="15009000" />
+      <workItem from="1610436281762" duration="17696000" />
+      <workItem from="1610698897435" duration="1705000" />
+      <workItem from="1610934381771" duration="3560000" />
+      <workItem from="1611064534640" duration="3675000" />
+      <workItem from="1611125159142" duration="6816000" />
     </task>
     <task id="LOCAL-00001" summary="jsx complete">
       <created>1609913618601</created>
@@ -117,7 +118,14 @@
       <option name="project" value="LOCAL" />
       <updated>1610447599738</updated>
     </task>
-    <option name="localTasksCounter" value="8" />
+    <task id="LOCAL-00008" summary="update">
+      <created>1610456977637</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1610456977637</updated>
+    </task>
+    <option name="localTasksCounter" value="9" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -142,14 +150,13 @@
         <line-breakpoint enabled="true" type="javascript">
           <url>file://$PROJECT_DIR$/src/reconciler/completeWork.ts</url>
           <line>123</line>
-          <properties lambdaOrdinal="-1" />
           <option name="timeStamp" value="66" />
         </line-breakpoint>
         <line-breakpoint enabled="true" type="javascript">
-          <url>file://$PROJECT_DIR$/src/reconciler/workLoop.ts</url>
-          <line>834</line>
+          <url>file://$PROJECT_DIR$/src/reconciler/domTopLevelEventTypes.ts</url>
+          <line>285</line>
           <properties lambdaOrdinal="-1" />
-          <option name="timeStamp" value="78" />
+          <option name="timeStamp" value="89" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
@@ -167,6 +174,13 @@
         <watch expression="workInProgress" language="TypeScript" />
         <watch expression="returnFiber" language="TypeScript" />
         <watch expression="completedWork" language="TypeScript" />
+        <watch expression="propKey" language="TypeScript" />
+        <watch expression="(propKey[0] === 'o' &amp;&amp; propKey[1] === 'n'" language="TypeScript" />
+        <watch expression="propKey[0] === 'o' &amp;&amp; propKey[1] === 'n'" language="TypeScript" />
+        <watch expression="registrationName" language="TypeScript" />
+        <watch expression="nativeEvent" language="TypeScript" />
+        <watch expression="nativeEvent.sourceMapTarget" language="TypeScript" />
+        <watch expression="nativeEvent.target" language="TypeScript" />
       </configuration>
       <configuration name="http://localhost:60308/">
         <watch expression="current" language="TypeScript" />

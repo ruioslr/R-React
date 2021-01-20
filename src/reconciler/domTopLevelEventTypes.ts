@@ -1,4 +1,3 @@
-
 /**
  * To identify top level events in ReactDOM, we use constants defined by this
  * module. This is the only module that uses the unsafe* methods to express
@@ -6,6 +5,10 @@
  * us save some bundle size by avoiding a top level type -> event name map.
  * The rest of ReactDOM code should import top level types from this file.
  */
+import {internalInstanceKey} from "./completeWork";
+import {HostComponent} from "../share/WorkTag";
+import {IFiber} from "../type";
+
 export const TOP_ABORT = unsafeCastStringToDOMTopLevelType('abort');
 export const TOP_BLUR = unsafeCastStringToDOMTopLevelType('blur');
 export const TOP_CAN_PLAY = unsafeCastStringToDOMTopLevelType('canplay');
@@ -239,6 +242,58 @@ export function removeEventListener(
     target.removeEventListener(eventType, listener, capture);
 }
 
+export function dispatchEvent(
+    topLevelType: string,
+    eventSystemFlags: number,
+    targetContainer: any,
+    nativeEvent: any,
+) {
+    function getHostFiberParent(fiber: IFiber): any {
+        if (!fiber) {
+            return null;
+        }
+        do {
+            fiber = fiber.return;
+        } while (fiber && fiber.tag !== HostComponent);
+        if (fiber) {
+            return fiber;
+        }
+        return null;
+    }
+
+    // 获取fiber上的事件
+    function getListener(fiber: IFiber){
+        return  fiber.pendingProps[`on${topLevelType[0].toUpperCase() + topLevelType.substring(1)}`];
+    }
+
+    // 执行事件函数
+    function executeDispatch(event) {
+        events._dispatchListeners.forEach((listener, index) => listener.call(events._dispatchInstances[index].stateNode, nativeEvent))
+    }
+
+    const nativeTarget = nativeEvent.target || nativeEvent.srcElement || window;
+    const targetFiber = nativeTarget[internalInstanceKey];
+    // 获取事件target的父节点
+    const path = [];
+    let currentFiber = targetFiber;
+    while (currentFiber) {
+        path.push(currentFiber);
+        currentFiber = getHostFiberParent(currentFiber);
+    }
+    // 找到target以及target父级的事件处理函数
+    const dispatchListeners = [];
+    const dispatchInstances = [];
+    for(let i = 0; i < path.length; i++) {
+        const listener = getListener(path[i]);
+        if(listener){
+            dispatchListeners.push(listener);
+            dispatchInstances.push(path[i]);
+        }
+    }
+    const events = {nativeEvent, _dispatchListeners: dispatchListeners, _dispatchInstances: dispatchInstances, _targetInst: targetFiber};
+    executeDispatch(events);
+}
+
 export function addTrappedEventListener(
     targetContainer: any,
     topLevelType: any,
@@ -249,9 +304,9 @@ export function addTrappedEventListener(
     priority?: any,
 ) {
     // TODO: 事件系统
-    return targetContainer.addEventListener((e) => {
-        console.log('触发事件', e)
-    })
+    const realEventName = topLevelType;
+    const listener = dispatchEvent.bind(null, topLevelType, null,targetContainer);
+    return targetContainer.addEventListener(topLevelType, listener);
 
 
 //     let listener = createEventListenerWrapperWithPriority(

@@ -40,12 +40,12 @@ export const STYLE = 'style';
 
 const registrationNameModules = {};
 
-const enableModernEventSystem = true;
+const enableModernEventSystem = false;
 
 const randomKey = Math.random()
     .toString(36)
     .slice(2);
-const internalInstanceKey = '__reactFiber$' + randomKey;
+export const internalInstanceKey = '__reactFiber$' + randomKey;
 const internalPropsKey = '__reactProps$' + randomKey;
 const internalContainerInstanceKey = '__reactContainer$' + randomKey;
 const internalEventHandlersKey = '__reactEvents$' + randomKey;
@@ -337,11 +337,8 @@ function setInitialDOMProperties(
         setTextContent(domElement, '' + nextProp);
       }
     } else if (propKey === AUTOFOCUS) {
-      // We polyfill it separately on the client during commit.
-      // We could have excluded it in the property list instead of
-      // adding a special case here, but then it wouldn't be emitted
-      // on server rendering (but we *do* want to emit it in SSR).
-    } else if (registrationNameModules.hasOwnProperty(propKey)) {
+      // 这里判断是否是事件的key
+    } else if (propKey[0] === 'o' && propKey[1] === 'n') {
       if (nextProp != null) {
         ensureListeningTo(rootContainerElement, propKey);
       }
@@ -377,13 +374,48 @@ export function ensureListeningTo(
     listenToEvent(registrationName, rootContainerElement);
   } else {
     // Legacy plugin event system path
-    // const isDocumentOrFragment =
-    //     rootContainerInstance.nodeType === DOCUMENT_NODE ||
-    //     rootContainerInstance.nodeType === DOCUMENT_FRAGMENT_NODE;
-    // const doc = isDocumentOrFragment
-    //     ? rootContainerInstance
-    //     : rootContainerInstance.ownerDocument;
-    // legacyListenToEvent(registrationName, doc);
+    const isDocumentOrFragment =
+        rootContainerInstance.nodeType === DOCUMENT_NODE ||
+        rootContainerInstance.nodeType === DOCUMENT_FRAGMENT_NODE;
+    const doc = isDocumentOrFragment
+        ? rootContainerInstance
+        : rootContainerInstance.ownerDocument;
+    legacyListenToEvent(registrationName, doc as any);
+  }
+}
+
+export function legacyListenToEvent(
+    registrationName: string,
+    mountAt: Document | Element,
+): void {
+  const listenerMap = mountAt['__reactEvents']  = mountAt['__reactEvents'] ? mountAt['__reactEvents'] : new Map();
+
+  legacyListenToTopLevelEvent(registrationName.substring(2).toLowerCase(), mountAt, listenerMap);
+}
+
+export function legacyListenToTopLevelEvent(
+    topLevelType: string,
+    mountAt: Document | Element,
+    listenerMap: any,
+): void {
+  if (!listenerMap.has(topLevelType)) {
+    legacyTrapBubbledEvent(topLevelType, mountAt, listenerMap);
+  }
+}
+
+export function legacyTrapBubbledEvent(
+    topLevelType: string,
+    element: Document | Element,
+    listenerMap?: any,
+): void {
+  const listener = addTrappedEventListener(
+      element,
+      topLevelType,
+      PLUGIN_EVENT_SYSTEM,
+      false,
+  );
+  if (listenerMap) {
+    listenerMap.set(topLevelType, {passive: undefined, listener});
   }
 }
 
